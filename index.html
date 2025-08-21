@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>食品腐败条带检测 · Web 交互版</title>
+<title>食品腐败条带检测 · 稳健上传版（数值 + 评价）</title>
 <style>
   :root { --bg:#0b1020; --card:#11172a; --muted:#7d8aa5; --primary:#4f8cff; }
   * { box-sizing: border-box; }
@@ -13,58 +13,73 @@
   main { max-width:1100px; margin:0 auto; padding:18px; }
   .row { display:flex; gap:18px; flex-wrap:wrap; }
   .card { background:#11172a; border:1px solid #1f253a; border-radius:14px; padding:14px; flex:1 1 360px; }
-  .controls { display:grid; grid-template-columns: 1fr 1fr; gap:12px; }
+  .controls { display:grid; grid-template-columns: 1fr 1fr; gap:10px; }
   .control { display:flex; align-items:center; gap:8px; }
-  .control label { width:86px; color:var(--muted); font-size:12px; }
+  .control label { width:110px; color:var(--muted); font-size:12px; }
   input[type=range], input[type=text], input[type=number] { width:100%; }
   .btn { appearance:none; background:var(--primary); color:#fff; padding:10px 14px; border:none; border-radius:10px; cursor:pointer; font-weight:600; }
   .btn.secondary { background:#334155; }
   .btn.success { background:#10b981; }
-  .btn:disabled { opacity:.5; cursor:not-allowed; }
+  .btn.warn { background:#f59e0b; }
   .muted { color:var(--muted); font-size:12px; }
   canvas { width:100%; height:auto; background:#0a0f1f; border-radius:10px; border:1px solid #1f253a; touch-action:none; }
   .grid { display:grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap:10px; }
   .grid-3 { display:grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap:10px; }
   .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
-  .pill { display:inline-block; padding:2px 8px; border-radius:999px; background:#0c1327; border:1px solid #1f253a; font-size:12px; color:#cbd5e1; }
+  .result-big { font-size:28px; font-weight:800; }
+  .badge { display:inline-block; padding:6px 10px; border-radius:999px; font-weight:700; }
+  .ok { background:#083b2b; color:#34d399; border:1px solid #065f46; }
+  .good { background:#2a2e12; color:#a3e635; border:1px solid #3f6212; }
+  .pass { background:#1e293b; color:#93c5fd; border:1px solid #475569; }
+  .bad { background:#3b0a0a; color:#fca5a5; border:1px solid #7f1d1d; }
+  #dropzone {
+    border:2px dashed #3b82f6; border-radius:12px; padding:12px; text-align:center; color:#93c5fd;
+    background:#0b1330; margin:10px 0;
+  }
+  #status { font-size:12px; color:#a1a1aa; margin-top:6px; min-height:18px; }
+  .hidden-input { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); }
 </style>
 </head>
 <body>
   <header>
-    <h1>食品腐败条带检测 · Web 交互版（可拖拽/缩放/裁剪）</h1>
+    <h1>食品腐败条带检测 · 稳健上传版（框选即出数值 + 评价）</h1>
   </header>
   <main>
     <div class="row">
       <section class="card" style="flex:2;">
         <h3>1) 选择/拍摄图像</h3>
-        <div class="grid">
-          <div>
-            <input id="file" type="file" accept="image/*" />
-          </div>
-          <div>
-            <input id="camera" type="file" accept="image/*" capture="environment" />
-          </div>
-        </div>
-        <p class="muted">蓝框=标准灰度条带 ROI；绿框=反应区 ROI；红框=裁剪框（可自由拖拽/缩放）。</p>
-        <canvas id="cv" width="960" height="720" aria-label="canvas"></canvas>
-        <div style="margin-top:10px; display:flex; gap:8px; flex-wrap:wrap;">
-          <button class="btn" id="btnCompute" disabled>计算浓度</button>
+        <div style="display:flex; gap:10px; flex-wrap:wrap">
+          <button class="btn" id="btnPickFile">选择图片</button>
+          <button class="btn" id="btnPickCamera">拍照上传</button>
+          <button class="btn secondary" id="btnSave" disabled>导出当前PNG</button>
           <button class="btn secondary" id="btnReset" disabled>重置ROI</button>
-          <button class="btn success" id="btnCrop" disabled>裁剪为红框区域</button>
-          <button class="btn secondary" id="btnSave" disabled>导出PNG</button>
         </div>
+        <!-- 隐藏的原生 input，点击按钮触发 -->
+        <input class="hidden-input" id="file" type="file" accept="image/*" />
+        <input class="hidden-input" id="camera" type="file" accept="image/*" capture="environment" />
+        <div id="dropzone">把图片拖到这里也可以上传</div>
+        <div id="status"></div>
+
+        <p class="muted">蓝框=标准灰度条带（用于标定）；绿框=待评估条带。拖拽/缩放，<b>松手自动计算</b>。</p>
+        <canvas id="cv" width="960" height="720" aria-label="canvas"></canvas>
       </section>
 
       <section class="card" style="flex:1;">
-        <h3>2) 参数与映射</h3>
+        <h3>2) 参数与阈值</h3>
         <div class="controls">
-          <div class="control"><label>切片数</label><input id="slices" type="number" min="2" max="24" value="8"></div>
-          <div class="control"><label>等级数组</label><input id="levels" type="text" placeholder="0,0.14,..." value="0,0.14,0.28,0.42,0.56,0.70,0.84,1.0"></div>
+          <div class="control"><label>切片数（标准条带）</label><input id="slices" type="number" min="2" max="24" value="8"></div>
+          <div class="control"><label>等级数组（0~1）</label><input id="levels" type="text" value="0,0.14,0.28,0.42,0.56,0.70,0.84,1.0"></div>
           <div class="control"><label>映射 a</label><input id="mapa" type="number" step="0.1" value="100"></div>
           <div class="control"><label>映射 b</label><input id="mapb" type="number" step="0.1" value="0"></div>
           <div class="control"><label>单位</label><input id="unit" type="text" value="AU"></div>
+
+          <div class="control"><label>阈值·优秀 ≤</label><input id="thExcellent" type="number" step="0.1" value="10"></div>
+          <div class="control"><label>阈值·良好 ≤</label><input id="thGood" type="number" step="0.1" value="30"></div>
+          <div class="control"><label>阈值·合格 ≤</label><input id="thPass" type="number" step="0.1" value="60"></div>
         </div>
-        <p class="muted" style="margin-top:10px">标准条带应为灰度渐变分档，切片数需与“等级数组”长度一致。</p>
+        <p class="muted" style="margin-top:10px">
+          数值 = a*level + b；默认评价：≤10 优秀，≤30 良好，≤60 合格，>60 不合格（可改）。
+        </p>
       </section>
     </div>
 
@@ -80,251 +95,34 @@
           <div class="mono" id="valLevel">-</div>
         </div>
         <div>
-          <div class="muted">估算浓度</div>
-          <div class="mono" id="valConc">-</div>
+          <div class="muted">拟合模型</div>
+          <div class="mono" id="valModel">-</div>
         </div>
       </div>
-      <div style="margin-top:10px;">
-        <div class="mono" id="valSlices">stdMeans: -</div>
-        <div class="mono" id="valModel">model: -</div>
+      <div style="margin-top:14px;">
+        <div>标准条带切片灰度：<span class="mono" id="valSlices">-</span></div>
       </div>
-    </section>
-
-    <section class="card">
-      <h3>说明</h3>
-      <ul>
-        <li>上传/拍照 → 画布展示 → 拖拽/缩放蓝/绿/红方框；点击“裁剪为红框区域”可替换原图。</li>
-        <li>标准灰度条带（蓝框）沿长边等分为 <span class="pill">切片数</span>，计算每片均值灰度，与“等级数组”做线性回归：<span class="mono">level = p*gray + q</span>。</li>
-        <li>反应区（绿框）计算均值灰度 → 代入求 level → 用 <span class="mono">conc = a*level + b</span> 得到浓度。</li>
-      </ul>
+      <hr style="border-color:#1f253a; margin:14px 0;">
+      <div class="result-big">
+        数值：<span id="valNumber">-</span> <span class="mono" id="valUnit"></span>
+        <span id="valJudge" class="badge pass" style="display:none;margin-left:10px;"></span>
+      </div>
     </section>
   </main>
 
 <script>
-/* ================= 工具与状态 ================= */
-const $ = (id) => document.getElementById(id);
+/* ========== dom helpers & status ========== */
+const $ = id => document.getElementById(id);
+function setStatus(msg, warn=false){ $('status').textContent = msg || ''; $('status').style.color = warn ? '#fca5a5' : '#a1a1aa'; }
+
+/* ========== 基础工具 ========== */
 const toGray = (r,g,b)=> Math.round(0.299*r + 0.587*g + 0.114*b);
 const clamp = (v,lo,hi)=>Math.max(lo, Math.min(hi, v));
 
-const canvas = $('cv');
-const ctx = canvas.getContext('2d', { willReadFrequently: true });
-
-let img = new Image();
-let hasImage = false;
-let imgW = 0, imgH = 0;
-
-/* ROI：使用图像像素坐标（不是百分比） */
-function makeROI(x,y,w,h,color,label){
-  return { x, y, w, h, color, label };
-}
-let stdROI = makeROI(0,0,0,0,'rgba(87,160,255,0.95)','STD');
-let testROI= makeROI(0,0,0,0,'rgba(16,185,129,0.95)','TEST');
-let cropROI= makeROI(0,0,0,0,'rgba(239,68,68,0.95)','CROP');
-
-const handleSize = 10; // 手柄像素大小（画布坐标）
-const Hit = { NONE:0, MOVE:1, N:2, S:3, W:4, E:5, NW:6, NE:7, SW:8, SE:9 };
-let activeROI = null;
-let activeHit = Hit.NONE;
-let dragStart = {x:0,y:0};
-let roiStart = null;
-
-/* ================= 图像加载与显示 ================= */
-function loadFileToImage(file){
-  const reader = new FileReader();
-  reader.onload = e=>{
-    img = new Image();
-    img.onload = ()=>{
-      hasImage = true;
-      fitCanvasToImage();
-      resetROIs();
-      draw();
-      enableButtons(true);
-    };
-    img.src = e.target.result; // dataURL，兼容性好
-  };
-  reader.readAsDataURL(file);
-}
-
-$('file').addEventListener('change', e=>{
-  if(e.target.files && e.target.files[0]) loadFileToImage(e.target.files[0]);
-});
-$('camera').addEventListener('change', e=>{
-  if(e.target.files && e.target.files[0]) loadFileToImage(e.target.files[0]);
-});
-
-function fitCanvasToImage(){
-  // 将宽度限制为 960，等比缩放
-  const maxW = 960;
-  const scale = Math.min(1, maxW / img.naturalWidth);
-  imgW = Math.round(img.naturalWidth * scale);
-  imgH = Math.round(img.naturalHeight * scale);
-  canvas.width = imgW; canvas.height = imgH;
-}
-
-function resetROIs(){
-  // 根据当前图像尺寸，给三个 ROI 合理初值
-  stdROI.x = Math.round(imgW * 0.05);
-  stdROI.y = Math.round(imgH * 0.15);
-  stdROI.w = Math.round(imgW * 0.15);
-  stdROI.h = Math.round(imgH * 0.70);
-
-  testROI.x = Math.round(imgW * 0.55);
-  testROI.y = Math.round(imgH * 0.35);
-  testROI.w = Math.round(imgW * 0.35);
-  testROI.h = Math.round(imgH * 0.30);
-
-  cropROI.x = Math.round(imgW * 0.05);
-  cropROI.y = Math.round(imgH * 0.05);
-  cropROI.w = Math.round(imgW * 0.90);
-  cropROI.h = Math.round(imgH * 0.90);
-}
-
-function enableButtons(en){
-  $('btnCompute').disabled = !en;
-  $('btnReset').disabled = !en;
-  $('btnCrop').disabled = !en;
-  $('btnSave').disabled = !en;
-}
-
-/* ================= 绘制 ================= */
-function draw(){
-  if(!hasImage) return;
-  ctx.clearRect(0,0,imgW,imgH);
-  ctx.drawImage(img, 0,0, imgW, imgH);
-  drawROI(stdROI);
-  drawROI(testROI);
-  drawROI(cropROI, true); // 裁剪框加虚线
-}
-function drawROI(roi, dashed=false){
-  ctx.save();
-  if(dashed){ ctx.setLineDash([8,6]); }
-  ctx.strokeStyle = roi.color;
-  ctx.lineWidth = 2;
-  ctx.strokeRect(roi.x, roi.y, roi.w, roi.h);
-  ctx.setLineDash([]);
-  // 顶部标签
-  ctx.fillStyle = roi.color;
-  ctx.font = '12px sans-serif';
-  const label = roi.label || '';
-  const tw = Math.ceil(ctx.measureText(label).width)+8;
-  ctx.fillRect(roi.x, Math.max(roi.y-18,0), tw, 16);
-  ctx.fillStyle = '#0b1020';
-  ctx.fillText(label, roi.x+4, Math.max(roi.y-5,10));
-  // 手柄
-  drawHandles(roi);
-  ctx.restore();
-}
-function drawHandles(roi){
-  const pts = handlePoints(roi);
-  ctx.fillStyle = '#000';
-  pts.forEach(p=>{
-    ctx.fillRect(p.x-handleSize/2+1, p.y-handleSize/2+1, handleSize, handleSize);
-    ctx.fillStyle = '#fff';
-    ctx.fillRect(p.x-handleSize/2+2, p.y-handleSize/2+2, handleSize-2, handleSize-2);
-    ctx.fillStyle = '#000';
-  });
-}
-function handlePoints(roi){
-  const cx = roi.x + roi.w/2;
-  const cy = roi.y + roi.h/2;
-  return [
-    {x:roi.x, y:roi.y, hit:Hit.NW},
-    {x:cx,    y:roi.y, hit:Hit.N},
-    {x:roi.x+roi.w, y:roi.y, hit:Hit.NE},
-    {x:roi.x, y:cy, hit:Hit.W},
-    {x:roi.x+roi.w, y:cy, hit:Hit.E},
-    {x:roi.x, y:roi.y+roi.h, hit:Hit.SW},
-    {x:cx,    y:roi.y+roi.h, hit:Hit.S},
-    {x:roi.x+roi.w, y:roi.y+roi.h, hit:Hit.SE},
-  ];
-}
-
-/* ================= 命中测试（拖拽/缩放） ================= */
-function hitTest(x,y){
-  // 先测手柄，再测内部，优先级：std/test/crop → 提升操作手感可按图层顺序调整
-  const order = [stdROI, testROI, cropROI];
-  for(const roi of order){
-    const pts = handlePoints(roi);
-    for(const p of pts){
-      if(Math.abs(x-p.x)<=handleSize && Math.abs(y-p.y)<=handleSize){
-        return { roi, hit:p.hit };
-      }
-    }
-  }
-  for(const roi of order){
-    if(x>=roi.x && x<=roi.x+roi.w && y>=roi.y && y<=roi.y+roi.h){
-      return { roi, hit:Hit.MOVE };
-    }
-  }
-  return { roi:null, hit:Hit.NONE };
-}
-
-function onPointerDown(clientX, clientY){
-  if(!hasImage) return;
-  const rect = canvas.getBoundingClientRect();
-  const x = Math.round((clientX - rect.left) * (canvas.width/rect.width));
-  const y = Math.round((clientY - rect.top)  * (canvas.height/rect.height));
-  const {roi, hit} = hitTest(x,y);
-  activeROI = roi; activeHit = hit;
-  dragStart = {x, y};
-  if(roi){
-    roiStart = {x:roi.x, y:roi.y, w:roi.w, h:roi.h};
-  }
-}
-function onPointerMove(clientX, clientY){
-  if(!hasImage || !activeROI) return;
-  const rect = canvas.getBoundingClientRect();
-  const x = Math.round((clientX - rect.left) * (canvas.width/rect.width));
-  const y = Math.round((clientY - rect.top)  * (canvas.height/rect.height));
-  const dx = x - dragStart.x;
-  const dy = y - dragStart.y;
-
-  let {x:rx, y:ry, w:rw, h:rh} = roiStart;
-  const minSize = 10;
-
-  switch(activeHit){
-    case Hit.MOVE:
-      rx += dx; ry += dy;
-      break;
-    case Hit.N:  ry += dy; rh -= dy; break;
-    case Hit.S:  rh += dy; break;
-    case Hit.W:  rx += dx; rw -= dx; break;
-    case Hit.E:  rw += dx; break;
-    case Hit.NW: rx += dx; rw -= dx; ry += dy; rh -= dy; break;
-    case Hit.NE: rw += dx; ry += dy; rh -= dy; break;
-    case Hit.SW: rx += dx; rw -= dx; rh += dy; break;
-    case Hit.SE: rw += dx; rh += dy; break;
-  }
-  // 约束在画布内，并限制最小尺寸
-  if(rw < minSize) rw = minSize;
-  if(rh < minSize) rh = minSize;
-  if(rx < 0) rx = 0;
-  if(ry < 0) ry = 0;
-  if(rx+rw > imgW) rx = imgW - rw;
-  if(ry+rh > imgH) ry = imgH - rh;
-
-  activeROI.x = rx; activeROI.y = ry; activeROI.w = rw; activeROI.h = rh;
-  draw();
-}
-function onPointerUp(){ activeROI=null; activeHit=Hit.NONE; }
-
-canvas.addEventListener('mousedown', e=> onPointerDown(e.clientX, e.clientY));
-window.addEventListener('mousemove', e=> onPointerMove(e.clientX, e.clientY));
-window.addEventListener('mouseup', onPointerUp);
-
-canvas.addEventListener('touchstart', e=>{ const t=e.changedTouches[0]; onPointerDown(t.clientX,t.clientY); e.preventDefault(); }, {passive:false});
-canvas.addEventListener('touchmove',  e=>{ const t=e.changedTouches[0]; onPointerMove(t.clientX,t.clientY); e.preventDefault(); }, {passive:false});
-canvas.addEventListener('touchend',   e=>{ onPointerUp(); e.preventDefault(); }, {passive:false});
-
-/* ================= 图像处理与计算 ================= */
-function getImageDataROI(roi){
-  const x = Math.round(roi.x), y = Math.round(roi.y), w = Math.round(roi.w), h = Math.round(roi.h);
-  return ctx.getImageData(x,y,w,h);
-}
 function meanGray(imgData){
   const d = imgData.data; let sum=0, n=0;
-  for(let i=0;i<d.length;i+=4){ sum += toGray(d[i], d[i+1], d[i+2]); n++; }
-  return sum / n;
+  for(let i=0;i<d.length;i+=4){ sum += toGray(d[i],d[i+1],d[i+2]); n++; }
+  return sum/n;
 }
 function sliceVerticalMeans(imgData, slices){
   const {width:w, height:h, data:d} = imgData;
@@ -333,9 +131,29 @@ function sliceVerticalMeans(imgData, slices){
   for(let s=0; s<slices; s++){
     const y0 = s*sliceH; const y1 = (s===slices-1? h : (s+1)*sliceH);
     let sum=0, n=0;
-    for(let y = y0; y < y1; y++){
+    for(let y=y0; y<y1; y++){
       for(let x=0; x<w; x++){
-        const i = (y*w + x) * 4;
+        const i=(y*w+x)*4;
+        sum += toGray(d[i], d[i+2], d[i+2]); // 小 typo? 更正为 d[i+1]
+      }
+    }
+    // 修复：正确计算
+  }
+  return means;
+}
+</script>
+<script>
+/* 修复上面的小错误并重定义 sliceVerticalMeans（为了安全展示，重新定义一次） */
+function sliceVerticalMeans(imgData, slices){
+  const {width:w, height:h, data:d} = imgData;
+  const sliceH = Math.max(1, Math.floor(h/slices));
+  const means = [];
+  for(let s=0; s<slices; s++){
+    const y0 = s*sliceH; const y1 = (s===slices-1? h : (s+1)*sliceH);
+    let sum=0, n=0;
+    for(let y=y0; y<y1; y++){
+      for(let x=0; x<w; x++){
+        const i=(y*w+x)*4;
         sum += toGray(d[i], d[i+1], d[i+2]); n++;
       }
     }
@@ -352,19 +170,220 @@ function fitGrayToLevel(stdGray, stdLevels){
   const q = (sumy - p*sumx)/n;
   return {p,q,n};
 }
+function judgeQuality(value, th){
+  if(value <= th.excellent) return {text:'优秀', cls:'ok'};
+  if(value <= th.good)      return {text:'良好', cls:'good'};
+  if(value <= th.pass)      return {text:'合格', cls:'pass'};
+  return {text:'不合格', cls:'bad'};
+}
 
-/* ================= 交互按钮 ================= */
-$('btnCompute').addEventListener('click', ()=>{
+/* ========== 画布/图像/ROI ========== */
+const canvas = $('cv');
+const ctx = canvas.getContext('2d', { willReadFrequently: true });
+let img = new Image(), hasImage=false, imgW=0, imgH=0;
+
+const handleSize = 10;
+const Hit = { NONE:0, MOVE:1, N:2, S:3, W:4, E:5, NW:6, NE:7, SW:8, SE:9 };
+let activeROI=null, activeHit=Hit.NONE, dragStart={x:0,y:0}, roiStart=null;
+
+function ROI(x,y,w,h,color,label){ this.x=x; this.y=y; this.w=w; this.h=h; this.color=color; this.label=label; }
+let stdROI = new ROI(0,0,0,0,'rgba(87,160,255,0.95)','STD');
+let testROI= new ROI(0,0,0,0,'rgba(16,185,129,0.95)','TEST');
+
+function fitCanvasToImage(){
+  const maxW = 960;
+  const scale = Math.min(1, maxW/img.naturalWidth);
+  imgW = Math.round(img.naturalWidth * scale);
+  imgH = Math.round(img.naturalHeight * scale);
+  canvas.width = imgW; canvas.height = imgH;
+}
+function resetROIs(){
+  stdROI.x = Math.round(imgW*0.05); stdROI.y = Math.round(imgH*0.15);
+  stdROI.w = Math.round(imgW*0.18); stdROI.h = Math.round(imgH*0.70);
+  testROI.x= Math.round(imgW*0.55); testROI.y= Math.round(imgH*0.35);
+  testROI.w= Math.round(imgW*0.35); testROI.h= Math.round(imgH*0.30);
+}
+function draw(){
   if(!hasImage) return;
+  ctx.clearRect(0,0,imgW,imgH);
+  ctx.drawImage(img,0,0,imgW,imgH);
+  drawROI(stdROI); drawROI(testROI);
+}
+function drawROI(r){
+  ctx.save();
+  ctx.strokeStyle = r.color; ctx.lineWidth=2;
+  ctx.strokeRect(r.x,r.y,r.w,r.h);
+  // 标签
+  ctx.fillStyle = r.color; ctx.font='12px sans-serif';
+  const tw = Math.ceil(ctx.measureText(r.label).width)+8;
+  ctx.fillRect(r.x, Math.max(r.y-18,0), tw, 16);
+  ctx.fillStyle = '#0b1020'; ctx.fillText(r.label, r.x+4, Math.max(r.y-5,10));
+  // 手柄
+  drawHandles(r);
+  ctx.restore();
+}
+function drawHandles(r){
+  const pts = handlePoints(r);
+  ctx.fillStyle='#000';
+  for(const p of pts){
+    ctx.fillRect(p.x-handleSize/2+1, p.y-handleSize/2+1, handleSize, handleSize);
+    ctx.fillStyle='#fff';
+    ctx.fillRect(p.x-handleSize/2+2, p.y-handleSize/2+2, handleSize-2, handleSize-2);
+    ctx.fillStyle='#000';
+  }
+}
+function handlePoints(r){
+  const cx=r.x+r.w/2, cy=r.y+r.h/2;
+  return [
+    {x:r.x, y:r.y, hit:Hit.NW},{x:cx, y:r.y, hit:Hit.N},{x:r.x+r.w, y:r.y, hit:Hit.NE},
+    {x:r.x, y:cy, hit:Hit.W},{x:r.x+r.w, y:cy, hit:Hit.E},
+    {x:r.x, y:r.y+r.h, hit:Hit.SW},{x:cx, y:r.y+r.h, hit:Hit.S},{x:r.x+r.w, y:r.y+r.h, hit:Hit.SE}
+  ];
+}
+function hitTest(x,y){
+  const order=[stdROI,testROI];
+  for(const r of order){
+    for(const p of handlePoints(r)){
+      if(Math.abs(x-p.x)<=handleSize && Math.abs(y-p.y)<=handleSize) return {roi:r, hit:p.hit};
+    }
+  }
+  for(const r of order){
+    if(x>=r.x && x<=r.x+r.w && y>=r.y && y<=r.y+r.h) return {roi:r, hit:Hit.MOVE};
+  }
+  return {roi:null, hit:Hit.NONE};
+}
+function onPointerDown(clientX, clientY){
+  if(!hasImage) return;
+  const rect=canvas.getBoundingClientRect();
+  const x=Math.round((clientX-rect.left)*(canvas.width/rect.width));
+  const y=Math.round((clientY-rect.top)*(canvas.height/rect.height));
+  const {roi, hit} = hitTest(x,y);
+  activeROI=roi; activeHit=hit; dragStart={x,y};
+  if(roi) roiStart={x:roi.x,y:roi.y,w:roi.w,h:roi.h};
+}
+function onPointerMove(clientX, clientY){
+  if(!hasImage || !activeROI) return;
+  const rect=canvas.getBoundingClientRect();
+  const x=Math.round((clientX-rect.left)*(canvas.width/rect.width));
+  const y=Math.round((clientY-rect.top)*(canvas.height/rect.height));
+  const dx=x-dragStart.x, dy=y-dragStart.y;
+
+  let {x:rx,y:ry,w:rw,h:rh}=roiStart;
+  const minSize=10;
+
+  switch(activeHit){
+    case Hit.MOVE: rx+=dx; ry+=dy; break;
+    case Hit.N: ry+=dy; rh-=dy; break;
+    case Hit.S: rh+=dy; break;
+    case Hit.W: rx+=dx; rw-=dx; break;
+    case Hit.E: rw+=dx; break;
+    case Hit.NW: rx+=dx; rw-=dx; ry+=dy; rh-=dy; break;
+    case Hit.NE: rw+=dx; ry+=dy; rh-=dy; break;
+    case Hit.SW: rx+=dx; rw-=dx; rh+=dy; break;
+    case Hit.SE: rw+=dx; rh+=dy; break;
+  }
+  if(rw<minSize) rw=minSize; if(rh<minSize) rh=minSize;
+  if(rx<0) rx=0; if(ry<0) ry=0;
+  if(rx+rw>imgW) rx=imgW-rw; if(ry+rh>imgH) ry=imgH-rh;
+
+  activeROI.x=rx; activeROI.y=ry; activeROI.w=rw; activeROI.h=rh;
+  draw();
+}
+function onPointerUp(){
+  activeROI=null; activeHit=Hit.NONE;
+  computeAndRender();
+}
+canvas.addEventListener('mousedown', e=>onPointerDown(e.clientX,e.clientY));
+window.addEventListener('mousemove', e=>onPointerMove(e.clientX,e.clientY));
+window.addEventListener('mouseup', onPointerUp);
+canvas.addEventListener('touchstart', e=>{const t=e.changedTouches[0]; onPointerDown(t.clientX,t.clientY); e.preventDefault();},{passive:false});
+canvas.addEventListener('touchmove', e=>{const t=e.changedTouches[0]; onPointerMove(t.clientX,t.clientY); e.preventDefault();},{passive:false});
+canvas.addEventListener('touchend', e=>{onPointerUp(); e.preventDefault();},{passive:false});
+
+/* ========== 上传：按钮触发 + 拖拽 + 双通道加载（dataURL / objectURL） ========== */
+function enableButtons(en){ $('btnSave').disabled=!en; $('btnReset').disabled=!en; }
+$('btnPickFile').addEventListener('click', ()=> $('file').click());
+$('btnPickCamera').addEventListener('click', ()=> $('camera').click());
+
+$('file').addEventListener('change', e=> handleChosenFile(e.target.files?.[0], false));
+$('camera').addEventListener('change', e=> handleChosenFile(e.target.files?.[0], true));
+
+const dropzone = $('dropzone');
+['dragenter','dragover'].forEach(evt => dropzone.addEventListener(evt, e=>{ e.preventDefault(); dropzone.style.background='#0b1a4a'; }));
+['dragleave','drop'].forEach(evt => dropzone.addEventListener(evt, e=>{ e.preventDefault(); dropzone.style.background='#0b1330'; }));
+dropzone.addEventListener('drop', e=>{
+  const f = e.dataTransfer.files && e.dataTransfer.files[0];
+  handleChosenFile(f,false);
+});
+
+function handleChosenFile(file, isCamera){
+  if(!file){ setStatus('未选择文件', true); return; }
+  if(!file.type.startsWith('image/')){ setStatus('请选择图片文件', true); return; }
+  setStatus('加载中…');
+  loadFileToImageWithFallback(file)
+    .then(()=>{ setStatus('图片已加载'); })
+    .catch(err=>{ console.error(err); setStatus('加载失败：' + err.message, true); });
+}
+
+function loadFileToImageWithFallback(file){
+  return new Promise((resolve, reject)=>{
+    let triedFallback = false;
+    function useDataURL(){
+      const reader = new FileReader();
+      reader.onerror = ()=>{ if(!triedFallback) { triedFallback=true; useObjectURL(); } else reject(new Error('FileReader 失败')); };
+      reader.onload = e=>{
+        img = new Image();
+        img.onload = ()=>{ afterImageLoad(); resolve(); };
+        img.onerror= ()=>{ if(!triedFallback) { triedFallback=true; useObjectURL(); } else reject(new Error('dataURL 加载失败')); };
+        img.src = e.target.result;
+      };
+      reader.readAsDataURL(file);
+    }
+    function useObjectURL(){
+      const url = URL.createObjectURL(file);
+      img = new Image();
+      img.onload = ()=>{ URL.revokeObjectURL(url); afterImageLoad(); resolve(); };
+      img.onerror= ()=>{ URL.revokeObjectURL(url); reject(new Error('objectURL 加载失败')); };
+      img.src = url;
+    }
+    function afterImageLoad(){
+      hasImage = true;
+      fitCanvasToImage(); resetROIs(); draw(); enableButtons(true);
+      // 初次加载也直接算一遍
+      computeAndRender();
+    }
+    // 先试 dataURL，再回退 objectURL
+    useDataURL();
+  });
+}
+
+/* ========== 参数读取与计算渲染 ========== */
+function readParams(){
   const slices = +$('slices').value || 8;
   const levels = $('levels').value.split(',').map(s=>+s.trim()).filter(v=>!Number.isNaN(v));
-  if(levels.length !== slices){ alert('切片数必须与等级数组长度一致'); return; }
   const a = +$('mapa').value || 1;
   const b = +$('mapb').value || 0;
   const unit = $('unit').value || 'AU';
+  const th = {
+    excellent: +$('thExcellent').value || 10,
+    good: +$('thGood').value || 30,
+    pass: +$('thPass').value || 60
+  };
+  return {slices, levels, a, b, unit, th};
+}
+function getImageDataROI(r){
+  const x=Math.round(r.x), y=Math.round(r.y), w=Math.round(r.w), h=Math.round(r.h);
+  if(w<=0||h<=0) return null;
+  return ctx.getImageData(x,y,w,h);
+}
+function computeAndRender(){
+  if(!hasImage) return;
+  const {slices, levels, a, b, unit, th} = readParams();
+  if(levels.length !== slices){ setStatus('切片数与等级数组长度不一致', true); return; } else { setStatus(''); }
 
   const stdData = getImageDataROI(stdROI);
   const testData= getImageDataROI(testROI);
+  if(!stdData || !testData){ setStatus('ROI 尺寸为 0，请调整框', true); return; }
 
   const stdMeans = sliceVerticalMeans(stdData, slices);
   const model = fitGrayToLevel(stdMeans, levels);
@@ -372,45 +391,29 @@ $('btnCompute').addEventListener('click', ()=>{
   const gTest = meanGray(testData);
   let level = model.p * gTest + model.q;
   level = clamp(level, 0, 1);
-  const conc = a * level + b;
+  const value = a * level + b;
+
+  const q = judgeQuality(value, th);
 
   $('valGray').textContent = Math.round(gTest);
   $('valLevel').textContent= level.toFixed(3);
-  $('valConc').textContent = conc.toFixed(2) + ' ' + unit;
-  $('valSlices').textContent= 'stdMeans = ' + JSON.stringify(stdMeans.map(v=>Math.round(v)));
-  $('valModel').textContent = `model: level = ${model.p.toFixed(6)} * gray + ${model.q.toFixed(6)} (n=${model.n})`;
-});
+  $('valModel').textContent = `level = ${model.p.toFixed(6)} * gray + ${model.q.toFixed(6)} (n=${model.n})`;
+  $('valSlices').textContent= JSON.stringify(stdMeans.map(v=>Math.round(v)));
 
-$('btnReset').addEventListener('click', ()=>{ resetROIs(); draw(); });
+  $('valNumber').textContent = value.toFixed(2);
+  $('valUnit').textContent = unit;
 
+  const judge = $('valJudge');
+  judge.style.display='inline-block';
+  judge.textContent = q.text;
+  judge.className = 'badge ' + q.cls;
+}
+
+/* ========== 其他按钮 ========== */
+$('btnReset').addEventListener('click', ()=>{ if(hasImage){ resetROIs(); draw(); computeAndRender(); }});
 $('btnSave').addEventListener('click', ()=>{
   if(!hasImage) return;
-  const a = document.createElement('a');
-  a.download = 'result.png';
-  a.href = canvas.toDataURL('image/png');
-  a.click();
-});
-
-$('btnCrop').addEventListener('click', ()=>{
-  if(!hasImage) return;
-  // 将图像裁剪为 cropROI 区域，并作为新的图像
-  const sx = Math.round(cropROI.x), sy = Math.round(cropROI.y);
-  const sw = Math.max(1, Math.round(cropROI.w)), sh = Math.max(1, Math.round(cropROI.h));
-
-  const tmp = document.createElement('canvas');
-  tmp.width = sw; tmp.height = sh;
-  const tctx = tmp.getContext('2d');
-  tctx.drawImage(canvas, sx, sy, sw, sh, 0, 0, sw, sh);
-
-  img = new Image();
-  img.onload = ()=>{
-    hasImage = true;
-    // 重新适配并重置 ROI
-    fitCanvasToImage();
-    resetROIs();
-    draw();
-  };
-  img.src = tmp.toDataURL('image/png');
+  const a=document.createElement('a'); a.download='result.png'; a.href=canvas.toDataURL('image/png'); a.click();
 });
 </script>
 </body>
