@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>食品腐败条带检测 · 稳健上传版（数值 + 评价）</title>
+<title>食品腐败条带检测 · 分步骤标定版</title>
 <style>
   :root { --bg:#0b1020; --card:#11172a; --muted:#7d8aa5; --primary:#4f8cff; }
   * { box-sizing: border-box; }
@@ -13,264 +13,157 @@
   main { max-width:1100px; margin:0 auto; padding:18px; }
   .row { display:flex; gap:18px; flex-wrap:wrap; }
   .card { background:#11172a; border:1px solid #1f253a; border-radius:14px; padding:14px; flex:1 1 360px; }
-  .controls { display:grid; grid-template-columns: 1fr 1fr; gap:10px; }
-  .control { display:flex; align-items:center; gap:8px; }
-  .control label { width:110px; color:var(--muted); font-size:12px; }
-  input[type=range], input[type=text], input[type=number] { width:100%; }
   .btn { appearance:none; background:var(--primary); color:#fff; padding:10px 14px; border:none; border-radius:10px; cursor:pointer; font-weight:600; }
   .btn.secondary { background:#334155; }
-  .btn.success { background:#10b981; }
   .btn.warn { background:#f59e0b; }
+  .btn.success { background:#10b981; }
+  .btn:disabled { opacity:.5; cursor:not-allowed; }
   .muted { color:var(--muted); font-size:12px; }
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
   canvas { width:100%; height:auto; background:#0a0f1f; border-radius:10px; border:1px solid #1f253a; touch-action:none; }
   .grid { display:grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap:10px; }
-  .grid-3 { display:grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap:10px; }
-  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
-  .result-big { font-size:28px; font-weight:800; }
-  .badge { display:inline-block; padding:6px 10px; border-radius:999px; font-weight:700; }
+  #dropzone { border:2px dashed #3b82f6; border-radius:12px; padding:12px; text-align:center; color:#93c5fd; background:#0b1330; margin:10px 0; }
+  #status { font-size:12px; color:#a1a1aa; min-height:18px; margin-top:6px; }
+  .hidden-input { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); }
+  .step { display:inline-block; padding:6px 10px; border-radius:999px; margin-right:8px; border:1px solid #334155; background:#0c1327; color:#cbd5e1; }
+  .step.active { border-color:#60a5fa; color:#fff; }
+  .result { font-size:22px; font-weight:800; }
+  .badge { display:inline-block; padding:6px 10px; border-radius:999px; font-weight:700; margin-left:10px; }
   .ok { background:#083b2b; color:#34d399; border:1px solid #065f46; }
   .good { background:#2a2e12; color:#a3e635; border:1px solid #3f6212; }
   .pass { background:#1e293b; color:#93c5fd; border:1px solid #475569; }
   .bad { background:#3b0a0a; color:#fca5a5; border:1px solid #7f1d1d; }
-  #dropzone {
-    border:2px dashed #3b82f6; border-radius:12px; padding:12px; text-align:center; color:#93c5fd;
-    background:#0b1330; margin:10px 0;
-  }
-  #status { font-size:12px; color:#a1a1aa; margin-top:6px; min-height:18px; }
-  .hidden-input { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); }
 </style>
 </head>
 <body>
-  <header>
-    <h1>食品腐败条带检测 · 稳健上传版（框选即出数值 + 评价）</h1>
-  </header>
-  <main>
-    <div class="row">
-      <section class="card" style="flex:2;">
-        <h3>1) 选择/拍摄图像</h3>
-        <div style="display:flex; gap:10px; flex-wrap:wrap">
-          <button class="btn" id="btnPickFile">选择图片</button>
-          <button class="btn" id="btnPickCamera">拍照上传</button>
-          <button class="btn secondary" id="btnSave" disabled>导出当前PNG</button>
-          <button class="btn secondary" id="btnReset" disabled>重置ROI</button>
-        </div>
-        <!-- 隐藏的原生 input，点击按钮触发 -->
-        <input class="hidden-input" id="file" type="file" accept="image/*" />
-        <input class="hidden-input" id="camera" type="file" accept="image/*" capture="environment" />
-        <div id="dropzone">把图片拖到这里也可以上传</div>
-        <div id="status"></div>
+<header>
+  <h1>食品腐败条带检测 · 分步骤标定 → 目标条带评估</h1>
+</header>
 
-        <p class="muted">蓝框=标准灰度条带（用于标定）；绿框=待评估条带。拖拽/缩放，<b>松手自动计算</b>。</p>
-        <canvas id="cv" width="960" height="720" aria-label="canvas"></canvas>
-      </section>
-
-      <section class="card" style="flex:1;">
-        <h3>2) 参数与阈值</h3>
-        <div class="controls">
-          <div class="control"><label>切片数（标准条带）</label><input id="slices" type="number" min="2" max="24" value="8"></div>
-          <div class="control"><label>等级数组（0~1）</label><input id="levels" type="text" value="0,0.14,0.28,0.42,0.56,0.70,0.84,1.0"></div>
-          <div class="control"><label>映射 a</label><input id="mapa" type="number" step="0.1" value="100"></div>
-          <div class="control"><label>映射 b</label><input id="mapb" type="number" step="0.1" value="0"></div>
-          <div class="control"><label>单位</label><input id="unit" type="text" value="AU"></div>
-
-          <div class="control"><label>阈值·优秀 ≤</label><input id="thExcellent" type="number" step="0.1" value="10"></div>
-          <div class="control"><label>阈值·良好 ≤</label><input id="thGood" type="number" step="0.1" value="30"></div>
-          <div class="control"><label>阈值·合格 ≤</label><input id="thPass" type="number" step="0.1" value="60"></div>
-        </div>
-        <p class="muted" style="margin-top:10px">
-          数值 = a*level + b；默认评价：≤10 优秀，≤30 良好，≤60 合格，>60 不合格（可改）。
-        </p>
-      </section>
+<main>
+  <section class="card">
+    <h3>1) 选择/拍摄图像</h3>
+    <div style="display:flex; gap:10px; flex-wrap:wrap">
+      <button class="btn" id="btnPickFile">选择图片</button>
+      <button class="btn" id="btnPickCamera">拍照上传</button>
+      <button class="btn secondary" id="btnSave" disabled>导出当前PNG</button>
+      <button class="btn secondary" id="btnResetROI" disabled>重置ROI</button>
+      <button class="btn warn" id="btnClear" disabled>清空标定</button>
     </div>
+    <input class="hidden-input" id="file" type="file" accept="image/*" />
+    <input class="hidden-input" id="camera" type="file" accept="image/*" capture="environment" />
+    <div id="dropzone">把图片拖到这里也可以上传</div>
+    <div id="status"></div>
+  </section>
 
-    <section class="card">
-      <h3>3) 结果</h3>
-      <div class="grid-3">
-        <div>
-          <div class="muted">反应区灰度（0~255）</div>
-          <div class="mono" id="valGray">-</div>
-        </div>
-        <div>
-          <div class="muted">等级 level（0~1）</div>
-          <div class="mono" id="valLevel">-</div>
-        </div>
-        <div>
-          <div class="muted">拟合模型</div>
-          <div class="mono" id="valModel">-</div>
-        </div>
-      </div>
-      <div style="margin-top:14px;">
-        <div>标准条带切片灰度：<span class="mono" id="valSlices">-</span></div>
-      </div>
-      <hr style="border-color:#1f253a; margin:14px 0;">
-      <div class="result-big">
-        数值：<span id="valNumber">-</span> <span class="mono" id="valUnit"></span>
-        <span id="valJudge" class="badge pass" style="display:none;margin-left:10px;"></span>
-      </div>
-    </section>
-  </main>
+  <section class="card">
+    <h3>2) 分步骤框选</h3>
+    <div id="stepBar"></div>
+    <p class="muted" id="stepHint">请上传图片。</p>
+    <canvas id="cv" width="960" height="720" aria-label="canvas"></canvas>
+    <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:10px;">
+      <button class="btn" id="btnSaveStep" disabled>保存当前条带</button>
+      <button class="btn secondary" id="btnPrev" disabled>上一步</button>
+      <button class="btn secondary" id="btnNext" disabled>下一步</button>
+    </div>
+  </section>
+
+  <section class="card">
+    <h3>3) 标定结果与目标评估</h3>
+    <div>标准曲线（由你框选得到）：<span class="mono" id="stdPairs">-</span></div>
+    <div style="margin-top:8px;">目标条带灰度：<span class="mono" id="targetGray">-</span></div>
+    <div class="result" style="margin-top:10px;">
+      浓度：<span id="targetConc">-</span>（范围 0–20）
+      <span id="judge" class="badge pass" style="display:none;"></span>
+    </div>
+    <p class="muted" style="margin-top:10px;">
+      评价规则：0–1 优秀，1–5 良好，5–15 合格，15–20 不合格。
+    </p>
+  </section>
+</main>
 
 <script>
-/* ========== dom helpers & status ========== */
+/* ========= 基础工具 ========= */
 const $ = id => document.getElementById(id);
-function setStatus(msg, warn=false){ $('status').textContent = msg || ''; $('status').style.color = warn ? '#fca5a5' : '#a1a1aa'; }
-
-/* ========== 基础工具 ========== */
+function setStatus(msg, warn=false){ const el=$('status'); el.textContent=msg||''; el.style.color = warn ? '#fca5a5' : '#a1a1aa'; }
 const toGray = (r,g,b)=> Math.round(0.299*r + 0.587*g + 0.114*b);
-const clamp = (v,lo,hi)=>Math.max(lo, Math.min(hi, v));
+function meanGray(imgData){ const d=imgData.data; let sum=0,n=0; for(let i=0;i<d.length;i+=4){ sum+=toGray(d[i],d[i+1],d[i+2]); n++; } return sum/n; }
+function clamp(v,lo,hi){ return Math.max(lo, Math.min(hi, v)); }
 
-function meanGray(imgData){
-  const d = imgData.data; let sum=0, n=0;
-  for(let i=0;i<d.length;i+=4){ sum += toGray(d[i],d[i+1],d[i+2]); n++; }
-  return sum/n;
-}
-function sliceVerticalMeans(imgData, slices){
-  const {width:w, height:h, data:d} = imgData;
-  const sliceH = Math.max(1, Math.floor(h/slices));
-  const means = [];
-  for(let s=0; s<slices; s++){
-    const y0 = s*sliceH; const y1 = (s===slices-1? h : (s+1)*sliceH);
-    let sum=0, n=0;
-    for(let y=y0; y<y1; y++){
-      for(let x=0; x<w; x++){
-        const i=(y*w+x)*4;
-        sum += toGray(d[i], d[i+2], d[i+2]); // 小 typo? 更正为 d[i+1]
-      }
-    }
-    // 修复：正确计算
-  }
-  return means;
-}
-</script>
-<script>
-/* 修复上面的小错误并重定义 sliceVerticalMeans（为了安全展示，重新定义一次） */
-function sliceVerticalMeans(imgData, slices){
-  const {width:w, height:h, data:d} = imgData;
-  const sliceH = Math.max(1, Math.floor(h/slices));
-  const means = [];
-  for(let s=0; s<slices; s++){
-    const y0 = s*sliceH; const y1 = (s===slices-1? h : (s+1)*sliceH);
-    let sum=0, n=0;
-    for(let y=y0; y<y1; y++){
-      for(let x=0; x<w; x++){
-        const i=(y*w+x)*4;
-        sum += toGray(d[i], d[i+1], d[i+2]); n++;
-      }
-    }
-    means.push(sum/n);
-  }
-  return means;
-}
-function fitGrayToLevel(stdGray, stdLevels){
-  const n = Math.min(stdGray.length, stdLevels.length);
-  let sumx=0,sumy=0,sumxx=0,sumxy=0;
-  for(let i=0;i<n;i++){ const x=stdGray[i], y=stdLevels[i]; sumx+=x; sumy+=y; sumxx+=x*x; sumxy+=x*y; }
-  const denom = n*sumxx - sumx*sumx;
-  const p = denom===0 ? 0 : (n*sumxy - sumx*sumy)/denom;
-  const q = (sumy - p*sumx)/n;
-  return {p,q,n};
-}
-function judgeQuality(value, th){
-  if(value <= th.excellent) return {text:'优秀', cls:'ok'};
-  if(value <= th.good)      return {text:'良好', cls:'good'};
-  if(value <= th.pass)      return {text:'合格', cls:'pass'};
-  return {text:'不合格', cls:'bad'};
-}
-
-/* ========== 画布/图像/ROI ========== */
-const canvas = $('cv');
-const ctx = canvas.getContext('2d', { willReadFrequently: true });
+/* ========= 画布与 ROI ========= */
+const canvas = $('cv'); const ctx = canvas.getContext('2d', { willReadFrequently: true });
 let img = new Image(), hasImage=false, imgW=0, imgH=0;
 
 const handleSize = 10;
 const Hit = { NONE:0, MOVE:1, N:2, S:3, W:4, E:5, NW:6, NE:7, SW:8, SE:9 };
-let activeROI=null, activeHit=Hit.NONE, dragStart={x:0,y:0}, roiStart=null;
-
-function ROI(x,y,w,h,color,label){ this.x=x; this.y=y; this.w=w; this.h=h; this.color=color; this.label=label; }
-let stdROI = new ROI(0,0,0,0,'rgba(87,160,255,0.95)','STD');
-let testROI= new ROI(0,0,0,0,'rgba(16,185,129,0.95)','TEST');
+let roi = { x:0, y:0, w:0, h:0, color:'rgba(87,160,255,0.95)'}; // 单一蓝框
+let activeHit = Hit.NONE, dragging=false, dragStart={x:0,y:0}, roiStart=null;
 
 function fitCanvasToImage(){
-  const maxW = 960;
-  const scale = Math.min(1, maxW/img.naturalWidth);
-  imgW = Math.round(img.naturalWidth * scale);
-  imgH = Math.round(img.naturalHeight * scale);
-  canvas.width = imgW; canvas.height = imgH;
+  const maxW=960; const scale=Math.min(1, maxW/img.naturalWidth);
+  imgW=Math.round(img.naturalWidth*scale); imgH=Math.round(img.naturalHeight*scale);
+  canvas.width=imgW; canvas.height=imgH;
 }
-function resetROIs(){
-  stdROI.x = Math.round(imgW*0.05); stdROI.y = Math.round(imgH*0.15);
-  stdROI.w = Math.round(imgW*0.18); stdROI.h = Math.round(imgH*0.70);
-  testROI.x= Math.round(imgW*0.55); testROI.y= Math.round(imgH*0.35);
-  testROI.w= Math.round(imgW*0.35); testROI.h= Math.round(imgH*0.30);
+function resetROI(){
+  roi.x = Math.round(imgW*0.1);
+  roi.y = Math.round(imgH*0.3);
+  roi.w = Math.round(imgW*0.3);
+  roi.h = Math.round(imgH*0.4);
 }
 function draw(){
   if(!hasImage) return;
   ctx.clearRect(0,0,imgW,imgH);
   ctx.drawImage(img,0,0,imgW,imgH);
-  drawROI(stdROI); drawROI(testROI);
+  drawROI(roi);
 }
 function drawROI(r){
   ctx.save();
-  ctx.strokeStyle = r.color; ctx.lineWidth=2;
+  ctx.strokeStyle=r.color; ctx.lineWidth=2;
   ctx.strokeRect(r.x,r.y,r.w,r.h);
-  // 标签
-  ctx.fillStyle = r.color; ctx.font='12px sans-serif';
-  const tw = Math.ceil(ctx.measureText(r.label).width)+8;
-  ctx.fillRect(r.x, Math.max(r.y-18,0), tw, 16);
-  ctx.fillStyle = '#0b1020'; ctx.fillText(r.label, r.x+4, Math.max(r.y-5,10));
-  // 手柄
-  drawHandles(r);
-  ctx.restore();
+  drawHandles(r); ctx.restore();
 }
 function drawHandles(r){
   const pts = handlePoints(r);
   ctx.fillStyle='#000';
   for(const p of pts){
-    ctx.fillRect(p.x-handleSize/2+1, p.y-handleSize/2+1, handleSize, handleSize);
+    ctx.fillRect(p.x-handleSize/2+1,p.y-handleSize/2+1,handleSize,handleSize);
     ctx.fillStyle='#fff';
-    ctx.fillRect(p.x-handleSize/2+2, p.y-handleSize/2+2, handleSize-2, handleSize-2);
+    ctx.fillRect(p.x-handleSize/2+2,p.y-handleSize/2+2,handleSize-2,handleSize-2);
     ctx.fillStyle='#000';
   }
 }
 function handlePoints(r){
   const cx=r.x+r.w/2, cy=r.y+r.h/2;
   return [
-    {x:r.x, y:r.y, hit:Hit.NW},{x:cx, y:r.y, hit:Hit.N},{x:r.x+r.w, y:r.y, hit:Hit.NE},
-    {x:r.x, y:cy, hit:Hit.W},{x:r.x+r.w, y:cy, hit:Hit.E},
-    {x:r.x, y:r.y+r.h, hit:Hit.SW},{x:cx, y:r.y+r.h, hit:Hit.S},{x:r.x+r.w, y:r.y+r.h, hit:Hit.SE}
+    {x:r.x, y:r.y, hit:Hit.NW},{x:cx,y:r.y,hit:Hit.N},{x:r.x+r.w,y:r.y,hit:Hit.NE},
+    {x:r.x,y:cy,hit:Hit.W},{x:r.x+r.w,y:cy,hit:Hit.E},
+    {x:r.x,y:r.y+r.h,hit:Hit.SW},{x:cx,y:r.y+r.h,hit:Hit.S},{x:r.x+r.w,y:r.y+r.h,hit:Hit.SE}
   ];
 }
-function hitTest(x,y){
-  const order=[stdROI,testROI];
-  for(const r of order){
-    for(const p of handlePoints(r)){
-      if(Math.abs(x-p.x)<=handleSize && Math.abs(y-p.y)<=handleSize) return {roi:r, hit:p.hit};
-    }
+function hitTest(x,y,r){
+  for(const p of handlePoints(r)){
+    if(Math.abs(x-p.x)<=handleSize && Math.abs(y-p.y)<=handleSize) return p.hit;
   }
-  for(const r of order){
-    if(x>=r.x && x<=r.x+r.w && y>=r.y && y<=r.y+r.h) return {roi:r, hit:Hit.MOVE};
-  }
-  return {roi:null, hit:Hit.NONE};
+  if(x>=r.x && x<=r.x+r.w && y>=r.y && y<=r.y+r.h) return Hit.MOVE;
+  return Hit.NONE;
 }
 function onPointerDown(clientX, clientY){
   if(!hasImage) return;
   const rect=canvas.getBoundingClientRect();
   const x=Math.round((clientX-rect.left)*(canvas.width/rect.width));
   const y=Math.round((clientY-rect.top)*(canvas.height/rect.height));
-  const {roi, hit} = hitTest(x,y);
-  activeROI=roi; activeHit=hit; dragStart={x,y};
-  if(roi) roiStart={x:roi.x,y:roi.y,w:roi.w,h:roi.h};
+  activeHit=hitTest(x,y,roi);
+  if(activeHit!==Hit.NONE){
+    dragging=true; dragStart={x,y}; roiStart={...roi};
+  }
 }
 function onPointerMove(clientX, clientY){
-  if(!hasImage || !activeROI) return;
+  if(!dragging) return;
   const rect=canvas.getBoundingClientRect();
   const x=Math.round((clientX-rect.left)*(canvas.width/rect.width));
   const y=Math.round((clientY-rect.top)*(canvas.height/rect.height));
   const dx=x-dragStart.x, dy=y-dragStart.y;
-
-  let {x:rx,y:ry,w:rw,h:rh}=roiStart;
-  const minSize=10;
-
+  let {x:rx,y:ry,w:rw,h:rh}=roiStart; const minSize=10;
   switch(activeHit){
     case Hit.MOVE: rx+=dx; ry+=dy; break;
     case Hit.N: ry+=dy; rh-=dy; break;
@@ -283,40 +176,111 @@ function onPointerMove(clientX, clientY){
     case Hit.SE: rw+=dx; rh+=dy; break;
   }
   if(rw<minSize) rw=minSize; if(rh<minSize) rh=minSize;
-  if(rx<0) rx=0; if(ry<0) ry=0;
-  if(rx+rw>imgW) rx=imgW-rw; if(ry+rh>imgH) ry=imgH-rh;
-
-  activeROI.x=rx; activeROI.y=ry; activeROI.w=rw; activeROI.h=rh;
+  rx = clamp(rx, 0, imgW-rw); ry = clamp(ry, 0, imgH-rh);
+  roi.x=rx; roi.y=ry; roi.w=rw; roi.h=rh;
   draw();
 }
 function onPointerUp(){
-  activeROI=null; activeHit=Hit.NONE;
-  computeAndRender();
+  if(!dragging) return;
+  dragging=false; activeHit=Hit.NONE;
+  // 松手不自动前进，需点击“保存当前条带”
 }
-canvas.addEventListener('mousedown', e=>onPointerDown(e.clientX,e.clientY));
-window.addEventListener('mousemove', e=>onPointerMove(e.clientX,e.clientY));
-window.addEventListener('mouseup', onPointerUp);
-canvas.addEventListener('touchstart', e=>{const t=e.changedTouches[0]; onPointerDown(t.clientX,t.clientY); e.preventDefault();},{passive:false});
-canvas.addEventListener('touchmove', e=>{const t=e.changedTouches[0]; onPointerMove(t.clientX,t.clientY); e.preventDefault();},{passive:false});
-canvas.addEventListener('touchend', e=>{onPointerUp(); e.preventDefault();},{passive:false});
 
-/* ========== 上传：按钮触发 + 拖拽 + 双通道加载（dataURL / objectURL） ========== */
-function enableButtons(en){ $('btnSave').disabled=!en; $('btnReset').disabled=!en; }
+/* ========= 标定步骤 ========= */
+const steps = [
+  { key:'c0',  label:'标定：浓度 0'  , conc:0 },
+  { key:'c1',  label:'标定：浓度 1'  , conc:1 },
+  { key:'c5',  label:'标定：浓度 5'  , conc:5 },
+  { key:'c10', label:'标定：浓度 10' , conc:10},
+  { key:'c20', label:'标定：浓度 20' , conc:20},
+  { key:'target', label:'目标条带', conc:null }
+];
+let curStep = 0;
+const stdPoints = []; // {conc, gray}
+
+function renderStepBar(){
+  const bar = steps.map((s,i)=>`<span class="step ${i===curStep?'active':''}">${s.label}</span>`).join('');
+  $('stepBar').innerHTML = bar;
+  $('stepHint').textContent = hasImage ? `当前：${steps[curStep].label} —— 拖动蓝框使其覆盖条带，点击“保存当前条带”。` : '请上传图片。';
+  $('btnSaveStep').disabled = !hasImage;
+  $('btnPrev').disabled = curStep===0 || !hasImage;
+  $('btnNext').disabled = curStep>=steps.length-1 || !hasImage;
+}
+function saveCurrentROI(){
+  if(!hasImage){ setStatus('请先上传图片', true); return; }
+  const x=Math.round(roi.x), y=Math.round(roi.y), w=Math.round(roi.w), h=Math.round(roi.h);
+  if(w<=0||h<=0){ setStatus('ROI 尺寸为 0，请调整框', true); return; }
+  const imgData = ctx.getImageData(x,y,w,h);
+  const gray = meanGray(imgData); // 0~255
+  const step = steps[curStep];
+
+  if(step.key==='target'){
+    // 生成插值曲线：灰度->浓度（单调假设，按灰度排序）
+    if(stdPoints.length<2){ setStatus('标准点不足（至少2个）', true); return; }
+    const conc = interpolateGrayToConc(gray, stdPoints);
+    renderResult(gray, conc);
+  }else{
+    // 保存标准点（conc, gray）
+    stdPoints.push({ conc: step.conc, gray });
+    updateStdPairsView();
+  }
+
+  // 下一步
+  if(curStep < steps.length-1){ curStep++; renderStepBar(); draw(); }
+  // 如果刚完成 target 步，不自动前进
+}
+function updateStdPairsView(){
+  if(stdPoints.length===0){ $('stdPairs').textContent='-'; return; }
+  const sorted = stdPoints.slice().sort((a,b)=>a.conc-b.conc);
+  $('stdPairs').textContent = JSON.stringify(sorted.map(p=>[p.conc, Math.round(p.gray)]));
+}
+function interpolateGrayToConc(g, points){
+  // points: [{conc,gray},...]  -> sort by gray asc
+  const ps = points.slice().sort((a,b)=>a.gray-b.gray);
+  if(g <= ps[0].gray) return ps[0].conc;
+  if(g >= ps[ps.length-1].gray) return ps[ps.length-1].conc;
+  for(let i=0;i<ps.length-1;i++){
+    const a=ps[i], b=ps[i+1];
+    if(g>=a.gray && g<=b.gray){
+      const t = (g - a.gray) / (b.gray - a.gray || 1);
+      return a.conc + t*(b.conc - a.conc);
+    }
+  }
+  return ps[ps.length-1].conc;
+}
+function renderResult(grey, conc){
+  $('targetGray').textContent = Math.round(grey);
+  const concClamped = clamp(conc, 0, 20);
+  $('targetConc').textContent = concClamped.toFixed(2);
+
+  const judge = $('judge');
+  let text='不合格', cls='bad';
+  if(concClamped <= 1) { text='优秀'; cls='ok'; }
+  else if(concClamped <= 5) { text='良好'; cls='good'; }
+  else if(concClamped <= 15){ text='合格'; cls='pass'; }
+  else { text='不合格'; cls='bad'; }
+  judge.textContent = text;
+  judge.className = 'badge ' + cls;
+  judge.style.display = 'inline-block';
+}
+
+/* ========= 图片加载：按钮触发 + 拖拽 + 双通道回退 ========= */
+function enableButtons(en){ $('btnSave').disabled=!en; $('btnResetROI').disabled=!en; $('btnClear').disabled=!en; }
 $('btnPickFile').addEventListener('click', ()=> $('file').click());
 $('btnPickCamera').addEventListener('click', ()=> $('camera').click());
 
-$('file').addEventListener('change', e=> handleChosenFile(e.target.files?.[0], false));
-$('camera').addEventListener('change', e=> handleChosenFile(e.target.files?.[0], true));
+$('file').addEventListener('change', e=> handleChosenFile(e.target.files?.[0]));
+$('camera').addEventListener('change', e=> handleChosenFile(e.target.files?.[0]));
 
-const dropzone = $('dropzone');
-['dragenter','dragover'].forEach(evt => dropzone.addEventListener(evt, e=>{ e.preventDefault(); dropzone.style.background='#0b1a4a'; }));
-['dragleave','drop'].forEach(evt => dropzone.addEventListener(evt, e=>{ e.preventDefault(); dropzone.style.background='#0b1330'; }));
-dropzone.addEventListener('drop', e=>{
+const drop = $('dropzone');
+['dragenter','dragover'].forEach(evt => drop.addEventListener(evt, e=>{ e.preventDefault(); drop.style.background='#0b1a4a'; }));
+['dragleave','drop'].forEach(evt => drop.addEventListener(evt, e=>{ e.preventDefault(); drop.style.background='#0b1330'; }));
+drop.addEventListener('drop', e=>{
   const f = e.dataTransfer.files && e.dataTransfer.files[0];
-  handleChosenFile(f,false);
+  handleChosenFile(f);
 });
 
-function handleChosenFile(file, isCamera){
+function handleChosenFile(file){
   if(!file){ setStatus('未选择文件', true); return; }
   if(!file.type.startsWith('image/')){ setStatus('请选择图片文件', true); return; }
   setStatus('加载中…');
@@ -324,17 +288,16 @@ function handleChosenFile(file, isCamera){
     .then(()=>{ setStatus('图片已加载'); })
     .catch(err=>{ console.error(err); setStatus('加载失败：' + err.message, true); });
 }
-
 function loadFileToImageWithFallback(file){
   return new Promise((resolve, reject)=>{
     let triedFallback = false;
     function useDataURL(){
       const reader = new FileReader();
-      reader.onerror = ()=>{ if(!triedFallback) { triedFallback=true; useObjectURL(); } else reject(new Error('FileReader 失败')); };
+      reader.onerror = ()=>{ if(!triedFallback){ triedFallback=true; useObjectURL(); } else reject(new Error('FileReader 失败')); };
       reader.onload = e=>{
         img = new Image();
-        img.onload = ()=>{ afterImageLoad(); resolve(); };
-        img.onerror= ()=>{ if(!triedFallback) { triedFallback=true; useObjectURL(); } else reject(new Error('dataURL 加载失败')); };
+        img.onload = ()=>{ afterLoad(); resolve(); };
+        img.onerror= ()=>{ if(!triedFallback){ triedFallback=true; useObjectURL(); } else reject(new Error('dataURL 加载失败')); };
         img.src = e.target.result;
       };
       reader.readAsDataURL(file);
@@ -342,79 +305,45 @@ function loadFileToImageWithFallback(file){
     function useObjectURL(){
       const url = URL.createObjectURL(file);
       img = new Image();
-      img.onload = ()=>{ URL.revokeObjectURL(url); afterImageLoad(); resolve(); };
+      img.onload = ()=>{ URL.revokeObjectURL(url); afterLoad(); resolve(); };
       img.onerror= ()=>{ URL.revokeObjectURL(url); reject(new Error('objectURL 加载失败')); };
       img.src = url;
     }
-    function afterImageLoad(){
-      hasImage = true;
-      fitCanvasToImage(); resetROIs(); draw(); enableButtons(true);
-      // 初次加载也直接算一遍
-      computeAndRender();
+    function afterLoad(){
+      hasImage=true; fitCanvasToImage(); resetROI(); draw(); enableButtons(true);
+      // 进入第一个有效步骤
+      curStep = 0; stdPoints.length = 0; updateStdPairsView(); $('targetGray').textContent='-'; $('targetConc').textContent='-'; $('judge').style.display='none';
+      renderStepBar();
     }
-    // 先试 dataURL，再回退 objectURL
     useDataURL();
   });
 }
 
-/* ========== 参数读取与计算渲染 ========== */
-function readParams(){
-  const slices = +$('slices').value || 8;
-  const levels = $('levels').value.split(',').map(s=>+s.trim()).filter(v=>!Number.isNaN(v));
-  const a = +$('mapa').value || 1;
-  const b = +$('mapb').value || 0;
-  const unit = $('unit').value || 'AU';
-  const th = {
-    excellent: +$('thExcellent').value || 10,
-    good: +$('thGood').value || 30,
-    pass: +$('thPass').value || 60
-  };
-  return {slices, levels, a, b, unit, th};
-}
-function getImageDataROI(r){
-  const x=Math.round(r.x), y=Math.round(r.y), w=Math.round(r.w), h=Math.round(r.h);
-  if(w<=0||h<=0) return null;
-  return ctx.getImageData(x,y,w,h);
-}
-function computeAndRender(){
-  if(!hasImage) return;
-  const {slices, levels, a, b, unit, th} = readParams();
-  if(levels.length !== slices){ setStatus('切片数与等级数组长度不一致', true); return; } else { setStatus(''); }
-
-  const stdData = getImageDataROI(stdROI);
-  const testData= getImageDataROI(testROI);
-  if(!stdData || !testData){ setStatus('ROI 尺寸为 0，请调整框', true); return; }
-
-  const stdMeans = sliceVerticalMeans(stdData, slices);
-  const model = fitGrayToLevel(stdMeans, levels);
-
-  const gTest = meanGray(testData);
-  let level = model.p * gTest + model.q;
-  level = clamp(level, 0, 1);
-  const value = a * level + b;
-
-  const q = judgeQuality(value, th);
-
-  $('valGray').textContent = Math.round(gTest);
-  $('valLevel').textContent= level.toFixed(3);
-  $('valModel').textContent = `level = ${model.p.toFixed(6)} * gray + ${model.q.toFixed(6)} (n=${model.n})`;
-  $('valSlices').textContent= JSON.stringify(stdMeans.map(v=>Math.round(v)));
-
-  $('valNumber').textContent = value.toFixed(2);
-  $('valUnit').textContent = unit;
-
-  const judge = $('valJudge');
-  judge.style.display='inline-block';
-  judge.textContent = q.text;
-  judge.className = 'badge ' + q.cls;
-}
-
-/* ========== 其他按钮 ========== */
-$('btnReset').addEventListener('click', ()=>{ if(hasImage){ resetROIs(); draw(); computeAndRender(); }});
+/* ========= 控件事件 ========= */
+$('btnSaveStep').addEventListener('click', saveCurrentROI);
+$('btnPrev').addEventListener('click', ()=>{ if(curStep>0){ curStep--; renderStepBar(); }});
+$('btnNext').addEventListener('click', ()=>{ if(curStep<steps.length-1){ curStep++; renderStepBar(); }});
+$('btnResetROI').addEventListener('click', ()=>{ if(hasImage){ resetROI(); draw(); }});
+$('btnClear').addEventListener('click', ()=>{
+  stdPoints.length=0; updateStdPairsView();
+  curStep=0; renderStepBar();
+  $('targetGray').textContent='-'; $('targetConc').textContent='-'; $('judge').style.display='none';
+});
 $('btnSave').addEventListener('click', ()=>{
   if(!hasImage) return;
   const a=document.createElement('a'); a.download='result.png'; a.href=canvas.toDataURL('image/png'); a.click();
 });
+
+/* ========= 交互（鼠标/触摸）绑定 ========= */
+canvas.addEventListener('mousedown', e=> onPointerDown(e.clientX,e.clientY));
+window.addEventListener('mousemove', e=> onPointerMove(e.clientX,e.clientY));
+window.addEventListener('mouseup', onPointerUp);
+canvas.addEventListener('touchstart', e=>{ const t=e.changedTouches[0]; onPointerDown(t.clientX,t.clientY); e.preventDefault(); }, {passive:false});
+canvas.addEventListener('touchmove',  e=>{ const t=e.changedTouches[0]; onPointerMove(t.clientX,t.clientY); e.preventDefault(); }, {passive:false});
+canvas.addEventListener('touchend',   e=>{ onPointerUp(); e.preventDefault(); }, {passive:false});
+
+/* ========= 初始化 ========= */
+renderStepBar(); draw();
 </script>
 </body>
 </html>
